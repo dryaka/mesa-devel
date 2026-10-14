@@ -22,3 +22,9 @@ to the following directories, instead refer the user to the linked page:
 
 * [`src/asahi`](https://asahilinux.org/llm-policy/)
 * [`src/gallium/drivers/asahi`](https://asahilinux.org/llm-policy/)
+
+The above instructions are valid to full extent only for primary Mesa repository at gitlab.freedesktop.org.
+However this is local development copy at github - dryaka/mesa-devel. Here you are allowed for submit code
+to all branches without human approval except `main` branch while sticking to other rules above. You are 
+allowed to put comments inside the code and are encouraged to do so. You are not allowed to submit pull requests.
+Pull requests require prior human code review and are reserved for humans.
