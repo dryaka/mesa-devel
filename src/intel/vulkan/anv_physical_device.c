@@ -5,6 +5,7 @@
 #include "anv_private.h"
 #include "anv_api_version.h"
 #include "anv_measure.h"
+#include "anv_gpu_reclaim.h"
 
 #include "dev/intel_debug.h"
 #include "i915/anv_device.h"
@@ -2552,6 +2553,29 @@ anv_restrict_sys_heap_size(struct anv_physical_device *device,
       return kmd_reported_sram * 3 / 4;
 }
 
+static void
+anv_apply_gpu_reclaim(struct anv_physical_device *device, int fd,
+                      bool diagnostic)
+{
+   if (!device->gpu_reclaim && !diagnostic)
+      return;
+
+   struct anv_gpu_reclaim sample;
+   uint64_t original = device->sys.available;
+   anv_gpu_reclaim_query(&device->info, fd, device->gpu_reclaim, diagnostic,
+                         original, &sample);
+   device->sys.available = sample.selected;
+   if (diagnostic) {
+      mesa_logi("ANV memory budget: reclaim=%u status=%s "
+                "MemTotal=%"PRIu64" MemAvailable=%"PRIu64" GPUReclaim=%"PRIu64
+                " region_free=%"PRIu64" region_size=%"PRIu64
+                " original=%"PRIu64" selected=%"PRIu64" bytes",
+                device->gpu_reclaim, sample.status, sample.total, sample.available,
+                sample.reclaim, sample.region_free, sample.region_size,
+                original, sample.selected);
+   }
+}
+
 static VkResult MUST_CHECK
 anv_init_meminfo(struct anv_physical_device *device, int fd)
 {
@@ -2561,6 +2585,7 @@ anv_init_meminfo(struct anv_physical_device *device, int fd)
    device->sys.size =
       anv_restrict_sys_heap_size(device, devinfo->mem.sram.mappable.size);
    device->sys.available = devinfo->mem.sram.mappable.free;
+   anv_apply_gpu_reclaim(device, fd, false);
 
    device->vram_mappable.region = &devinfo->mem.vram.mem;
    device->vram_mappable.size = devinfo->mem.vram.mappable.size;
@@ -2574,13 +2599,24 @@ anv_init_meminfo(struct anv_physical_device *device, int fd)
 }
 
 static void
-anv_update_meminfo(struct anv_physical_device *device, int fd)
+anv_update_meminfo(struct anv_physical_device *device, int fd, bool diagnostic)
 {
-   if (!intel_device_info_update_memory_info(&device->info, fd))
+   if (!intel_device_info_update_memory_info(&device->info, fd)) {
+#ifdef __linux__
+      if (device->gpu_reclaim && !device->info.has_local_mem &&
+          device->info.kmd_type == INTEL_KMD_TYPE_XE)
+         device->sys.available = device->info.mem.sram.mappable.free;
+#endif
+      if (diagnostic)
+         mesa_logi("ANV memory budget: reclaim=%u status=refresh-failed "
+                   "selected=%"PRIu64" bytes", device->gpu_reclaim,
+                   device->sys.available);
       return;
+   }
 
    const struct intel_device_info *devinfo = &device->info;
    device->sys.available = devinfo->mem.sram.mappable.free;
+   anv_apply_gpu_reclaim(device, fd, diagnostic);
    device->vram_mappable.available = devinfo->mem.vram.mappable.free;
    device->vram_non_mappable.available = devinfo->mem.vram.unmappable.free;
 }
@@ -3143,6 +3179,7 @@ anv_physical_device_try_create(struct vk_instance *vk_instance,
       !intel_use_jay_for_stage(&devinfo, MESA_SHADER_COMPUTE) &&
       device->drirc.debug.disable_subgroup_size_control;
 
+   device->gpu_reclaim = debug_get_bool_option("ANV_GPU_RECLAIM", false);
    result = anv_physical_device_init_heaps(device, fd);
    if (result != VK_SUCCESS)
       goto fail_drirc;
@@ -3537,7 +3574,9 @@ anv_get_memory_budget(VkPhysicalDevice physicalDevice,
    if (!device->vk.supported_extensions.EXT_memory_budget)
       return;
 
-   anv_update_meminfo(device, device->local_fd);
+   bool diagnostic = ANV_DEBUG(MEMORY_BUDGET) &&
+      p_atomic_cmpxchg(&device->memory_budget_logged, 0, 1) == 0;
+   anv_update_meminfo(device, device->local_fd, diagnostic);
 
    VkDeviceSize total_sys_heaps_size = 0, total_vram_heaps_size = 0;
    for (size_t i = 0; i < device->memory.heap_count; i++) {
@@ -3582,6 +3621,12 @@ anv_get_memory_budget(VkPhysicalDevice physicalDevice,
        */
       heap_budget &= ~((1ull << 20) - 1);
 
+#ifdef __linux__
+      if (device->gpu_reclaim && !device->info.has_local_mem &&
+          device->info.kmd_type == INTEL_KMD_TYPE_XE && heap_budget == 0)
+         heap_budget = MIN2(heap_size, 1ull << 20);
+#endif
+
       /*
        * The heapBudget value must be non-zero for array elements less than
        * VkPhysicalDeviceMemoryProperties::memoryHeapCount. The heapBudget
@@ -3591,6 +3636,12 @@ anv_get_memory_budget(VkPhysicalDevice physicalDevice,
 
       memoryBudget->heapUsage[i] = heap_used;
       memoryBudget->heapBudget[i] = heap_budget;
+      if (diagnostic) {
+         mesa_logi("ANV memory budget: heap=%zu local=%u "
+                   "heap_size=%"PRIu64" usage=%"PRIu64" budget=%"PRIu64
+                   " bytes", i, device->memory.heaps[i].is_local_mem,
+                   (uint64_t)heap_size, (uint64_t)heap_used, (uint64_t)heap_budget);
+      }
    }
 
    /* The heapBudget and heapUsage values must be zero for array elements

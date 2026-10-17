@@ -921,6 +921,11 @@ Anvil(ANV) driver environment variables
   ``no-slab``
     Disables the slab subsystem, which optimizes memory usage by allowing
     application buffers to share GEM buffers.
+  ``memory-budget``
+    Print the reclaim option state, sample validity or fallback reason,
+    system-memory counters, raw Xe bounds and final per-heap budgets, in
+    bytes, on the first memory-budget query per physical device. This does
+    not enable reclaim accounting.
   ``shader-print``
     Allow developer print traces added by `brw_nir_printf` to be
     printed out on the console
@@ -968,6 +973,30 @@ Anvil(ANV) driver environment variables
    ``ANV_QUEUE_OVERRIDE=gc=0,c=1`` would override the number of
    advertised queues to include 1 queue with compute-only support, and
    it would override the number of graphics+compute queues to be 0.
+
+.. envvar:: ANV_GPU_RECLAIM
+
+   Include Linux ``GPUReclaim`` in the system-memory availability estimate
+   used by :ext:`VK_EXT_memory_budget`. Disabled by default; set to ``1`` or
+   ``true`` to enable. The spellings ``y``, ``yes`` and ``t`` also enable it;
+   alphabetic values are case-insensitive. Unset, empty or unrecognized
+   values leave it disabled. Read at physical-device initialization; restart
+   the application or service to change the setting.
+
+   Applies only to Linux Xe devices without local VRAM. The host estimate is
+   ``min(MemAvailable + GPUReclaim, MemTotal)``, capped by the raw Xe region
+   free memory and capacity. Existing heap limits, including
+   :envvar:`ANV_SYS_MEM_LIMIT`, reserve, apportionment and rounding still apply.
+   Missing or zero ``GPUReclaim``, invalid counters, failed reads or failed
+   region queries retain the ordinary estimate.
+
+   Use only on kernels where these pool pages are not already included in
+   ``MemAvailable``; the driver cannot automatically detect that accounting
+   change. ``GPUReclaim`` is host-wide, not a per-device or container
+   entitlement. The option changes an estimate and does not reserve memory
+   or force reclaim. Allocation can still fail or cause reclaim latency and
+   swap activity. An increased budget may change application placement;
+   full GPU placement and higher throughput are application-dependent.
 
 .. envvar:: ANV_SYS_MEM_LIMIT
 

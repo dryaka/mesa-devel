@@ -205,6 +205,8 @@ libanv_files = files(
   'anv_event.c',
   'anv_formats.c',
   'anv_genX.h',
+  'anv_gpu_reclaim.c',
+  'anv_gpu_reclaim.h',
   'anv_image.c',
   'anv_image_host_copy.c',
   'anv_image_view.c',
@@ -344,6 +346,21 @@ if with_symbols_check
 endif
 
 if with_tests
+  if host_machine.system() == 'linux'
+    test(
+      'anv_gpu_reclaim_test',
+      executable(
+        'anv_gpu_reclaim_test',
+        ['tests/anv_gpu_reclaim_test.c', 'anv_gpu_reclaim.c'],
+        include_directories : [inc_include, inc_src, inc_intel, inc_compiler],
+        dependencies : idep_intel_dev,
+        c_args : ['-UNDEBUG'],
+        link_args : ['-Wl,--wrap=open,--wrap=open64,--wrap=read,--wrap=close,--wrap=intel_device_info_xe_query_regions'],
+      ),
+      suite : ['intel'],
+    )
+  endif
+
   libvulkan_intel_test = static_library(
     'vulkan_intel_test',
     [files('anv_gem_stubs.c'), anv_entrypoints[0]],
@@ -364,6 +381,24 @@ if with_tests
     c_args : anv_flags,
     gnu_symbol_visibility : 'hidden',
   )
+
+  if host_machine.system() == 'linux'
+    test(
+      'anv_memory_budget_test',
+      executable(
+        'anv_memory_budget_test',
+        ['tests/anv_memory_budget_test.c', anv_entrypoints[0]],
+        include_directories : [inc_include, inc_src, inc_intel, inc_compiler, inc_nir],
+        dependencies : [anv_deps, idep_intel_dev, idep_intel_driver_ds,
+                        idep_nir, idep_vulkan_util, idep_vulkan_wsi,
+                        idep_vulkan_runtime, dep_thread, dep_m, dep_valgrind],
+        link_with : libvulkan_intel_test,
+        c_args : ['-UNDEBUG'],
+        link_args : ['-Wl,--wrap=intel_device_info_update_memory_info,--wrap=anv_gpu_reclaim_query'],
+      ),
+      suite : ['intel'],
+    )
+  endif
 
   files_anv_tests = files(
     'tests/anv_tests.cpp',

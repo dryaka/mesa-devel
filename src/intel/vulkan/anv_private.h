@@ -1687,6 +1687,8 @@ struct anv_physical_device {
     struct anv_memregion                        vram_mappable;
     struct anv_memregion                        vram_non_mappable;
     struct anv_memregion                        sys;
+    bool                                        gpu_reclaim;
+    int                                         memory_budget_logged;
     uint8_t                                     driver_build_sha1[BLAKE3_KEY_LEN];
     /** Hash of everything that changes the compiler's output
      *
@@ -1854,6 +1856,7 @@ enum anv_debug {
    ANV_DEBUG_EXPERIMENTAL               = BITFIELD_BIT(11),
    ANV_DEBUG_DGC_DUMP                   = BITFIELD_BIT(12),
    ANV_DEBUG_SKIP_DISK_CACHE            = BITFIELD_BIT(13),
+   ANV_DEBUG_MEMORY_BUDGET              = BITFIELD_BIT(14),
 };
 
 extern enum anv_debug anv_debug;

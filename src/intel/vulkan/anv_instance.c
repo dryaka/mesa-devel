@@ -9,6 +9,7 @@ static const struct debug_control debug_control[] = {
    { "desc-dirty",                ANV_DEBUG_DESCRIPTOR_DIRTY},
    { "dgc-dump",                  ANV_DEBUG_DGC_DUMP},
    { "experimental",              ANV_DEBUG_EXPERIMENTAL},
+   { "memory-budget",             ANV_DEBUG_MEMORY_BUDGET},
    { "no-gpl",                    ANV_DEBUG_NO_GPL},
    { "no-slab",                   ANV_DEBUG_NO_SLAB},
    { "no-sparse",                 ANV_DEBUG_NO_SPARSE},
